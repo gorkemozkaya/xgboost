@@ -24,8 +24,8 @@ int main(int argc, char** argv) {
 
   // load the data
   DMatrixHandle dtrain, dtest;
-  safe_xgboost(XGDMatrixCreateFromFile("../data/agaricus.txt.train", silent, &dtrain));
-  safe_xgboost(XGDMatrixCreateFromFile("../data/agaricus.txt.test", silent, &dtest));
+  safe_xgboost(XGDMatrixCreateFromFile("../data/gamma-train.libsvm.txt", silent, &dtrain));
+  safe_xgboost(XGDMatrixCreateFromFile("../data/gamma-test.libsvm.txt", silent, &dtest));
 
   // create the booster
   BoosterHandle booster;
@@ -45,7 +45,8 @@ int main(int argc, char** argv) {
     safe_xgboost(XGBoosterSetParam(booster, "gpu_id", "-1"));
   }
 
-  safe_xgboost(XGBoosterSetParam(booster, "objective", "binary:logistic"));
+  //safe_xgboost(XGBoosterSetParam(booster, "objective", "binary:logistic"));
+  safe_xgboost(XGBoosterSetParam(booster, "objective", "reg:gamma"));
   safe_xgboost(XGBoosterSetParam(booster, "min_child_weight", "1"));
   safe_xgboost(XGBoosterSetParam(booster, "gamma", "0.1"));
   safe_xgboost(XGBoosterSetParam(booster, "max_depth", "3"));

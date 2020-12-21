@@ -7,10 +7,97 @@
 #include <xgboost/data.h>
 #include <xgboost/learner.h>
 
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#define safe_xgboost(call) {                                            \
+int err = (call);                                                       \
+if (err != 0) {                                                         \
+  fprintf(stderr, "%s:%d: error in %s: %s\n", __FILE__, __LINE__, #call, XGBGetLastError()); \
+  exit(1);                                                              \
+}                                                                       \
+}
+
+
 #include "../helpers.h"
 #include "../../../src/common/io.h"
 
 #include "../../../src/c_api/c_api_error.h"
+
+namespace fs = std::__fs::filesystem;
+
+
+TEST(CAPI, GammaRegression) {
+    std::cout << "this will be replaced with a gamma regression example" ;
+    std::cout << "Current path is " << fs::current_path() << '\n';
+    int silent = 0;
+    int use_gpu = 0;  // set to 1 to use the GPU for training
+
+    // load the data
+    DMatrixHandle dtrain, dtest;
+    safe_xgboost(XGDMatrixCreateFromFile("../demo/data/gamma-train.libsvm.txt", silent, &dtrain));
+    safe_xgboost(XGDMatrixCreateFromFile("../demo/data/gamma-test.libsvm.txt", silent, &dtest));
+
+    // create the booster
+    BoosterHandle booster;
+    DMatrixHandle eval_dmats[2] = {dtrain, dtest};
+    safe_xgboost(XGBoosterCreate(eval_dmats, 2, &booster));
+
+    // configure the training
+    // available parameters are described here:
+    //   https://xgboost.readthedocs.io/en/latest/parameter.html
+    safe_xgboost(XGBoosterSetParam(booster, "tree_method", use_gpu ? "gpu_hist" : "hist"));
+    if (use_gpu) {
+        // set the GPU to use;
+        // this is not necessary, but provided here as an illustration
+        safe_xgboost(XGBoosterSetParam(booster, "gpu_id", "0"));
+    } else {
+        // avoid evaluating objective and metric on a GPU
+        safe_xgboost(XGBoosterSetParam(booster, "gpu_id", "-1"));
+    }
+
+    //safe_xgboost(XGBoosterSetParam(booster, "objective", "binary:logistic"));
+    safe_xgboost(XGBoosterSetParam(booster, "objective", "reg:gamma"));
+    safe_xgboost(XGBoosterSetParam(booster, "min_child_weight", "1"));
+    safe_xgboost(XGBoosterSetParam(booster, "gamma", "0.1"));
+    safe_xgboost(XGBoosterSetParam(booster, "max_depth", "3"));
+    safe_xgboost(XGBoosterSetParam(booster, "verbosity", silent ? "0" : "1"));
+
+    // train and evaluate for 10 iterations
+    int n_trees = 10;
+    const char* eval_names[2] = {"train", "test"};
+    const char* eval_result = NULL;
+    for (int i = 0; i < n_trees; ++i) {
+        safe_xgboost(XGBoosterUpdateOneIter(booster, i, dtrain));
+        safe_xgboost(XGBoosterEvalOneIter(booster, i, eval_dmats, eval_names, 2, &eval_result));
+        printf("%s\n", eval_result);
+    }
+
+    bst_ulong num_feature = 0;
+    safe_xgboost(XGBoosterGetNumFeature(booster, &num_feature));
+    printf("num_feature: %lu\n", (unsigned long)(num_feature));
+
+    // predict
+    bst_ulong out_len = 0;
+    const float* out_result = NULL;
+    int n_print = 10;
+
+    safe_xgboost(XGBoosterPredict(booster, dtest, 0, 0, 0, &out_len, &out_result));
+    printf("y_pred: ");
+    for (int i = 0; i < n_print; ++i) {
+        printf("%1.4f ", out_result[i]);
+    }
+    printf("\n");
+
+    // print true labels
+    safe_xgboost(XGDMatrixGetFloatInfo(dtest, "label", &out_len, &out_result));
+    printf("y_test: ");
+    for (int i = 0; i < n_print; ++i) {
+        printf("%1.4f ", out_result[i]);
+    }
+    printf("\n");
+}
 
 TEST(CAPI, XGDMatrixCreateFromMatDT) {
   std::vector<int> col0 = {0, -1, 3};
@@ -40,38 +127,39 @@ TEST(CAPI, XGDMatrixCreateFromMatDT) {
 }
 
 TEST(CAPI, XGDMatrixCreateFromMatOmp) {
-  std::vector<bst_ulong> num_rows = {100, 11374, 15000};
-  for (auto row : num_rows) {
-    bst_ulong num_cols = 50;
-    int num_missing = 5;
-    DMatrixHandle handle;
-    std::vector<float> data(num_cols * row, 1.5);
-    for (int i = 0; i < num_missing; i++) {
-      data[i] = std::numeric_limits<float>::quiet_NaN();
-    }
-
-    XGDMatrixCreateFromMat_omp(data.data(), row, num_cols,
-                               std::numeric_limits<float>::quiet_NaN(), &handle,
-                               0);
-
-    std::shared_ptr<xgboost::DMatrix> *dmat =
-        static_cast<std::shared_ptr<xgboost::DMatrix> *>(handle);
-    xgboost::MetaInfo &info = (*dmat)->Info();
-    ASSERT_EQ(info.num_col_, num_cols);
-    ASSERT_EQ(info.num_row_, row);
-    ASSERT_EQ(info.num_nonzero_, num_cols * row - num_missing);
-
-    for (const auto &batch : (*dmat)->GetBatches<xgboost::SparsePage>()) {
-      for (size_t i = 0; i < batch.Size(); i++) {
-        auto inst = batch[i];
-        for (auto e : inst) {
-          ASSERT_EQ(e.fvalue, 1.5);
+    std::vector<bst_ulong> num_rows = {100, 11374, 15000};
+    for (auto row : num_rows) {
+        bst_ulong num_cols = 50;
+        int num_missing = 5;
+        DMatrixHandle handle;
+        std::vector<float> data(num_cols * row, 1.5);
+        for (int i = 0; i < num_missing; i++) {
+            data[i] = std::numeric_limits<float>::quiet_NaN();
         }
-      }
+
+        XGDMatrixCreateFromMat_omp(data.data(), row, num_cols,
+                                   std::numeric_limits<float>::quiet_NaN(), &handle,
+                                   0);
+
+        std::shared_ptr<xgboost::DMatrix> *dmat =
+                static_cast<std::shared_ptr<xgboost::DMatrix> *>(handle);
+        xgboost::MetaInfo &info = (*dmat)->Info();
+        ASSERT_EQ(info.num_col_, num_cols);
+        ASSERT_EQ(info.num_row_, row);
+        ASSERT_EQ(info.num_nonzero_, num_cols * row - num_missing);
+
+        for (const auto &batch : (*dmat)->GetBatches<xgboost::SparsePage>()) {
+            for (size_t i = 0; i < batch.Size(); i++) {
+                auto inst = batch[i];
+                for (auto e : inst) {
+                    ASSERT_EQ(e.fvalue, 1.5);
+                }
+            }
+        }
+        delete dmat;
     }
-    delete dmat;
-  }
 }
+
 
 namespace xgboost {
 

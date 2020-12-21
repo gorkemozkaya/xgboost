@@ -291,10 +291,14 @@ struct EvalGammaNLogLik {
   }
 
   XGBOOST_DEVICE bst_float EvalRow(bst_float y, bst_float py) const {
+    const bst_float eps = 1e-16f;
+    if (y < eps) y = eps;
+
     bst_float psi = 1.0;
     bst_float theta = -1. / py;
     bst_float a = psi;
     bst_float b = -std::log(-theta);
+
     bst_float c = 1. / psi * std::log(y/psi) - std::log(y) - common::LogGamma(1. / psi);
     return -((y * theta - b) / a + c);
   }

@@ -124,3 +124,11 @@ TEST(Metric, DeclareUnifiedTest(PoissionNegLogLik)) {
               1.1280f, 0.001f);
   delete metric;
 }
+
+TEST(Metric, DeclareUnifiedTest(GammaNegLogLik)) {
+    auto lparam = xgboost::CreateEmptyGenericParam(GPUIDX);
+    xgboost::Metric * metric = xgboost::Metric::Create("gamma-nloglik", &lparam);
+    metric->Configure({});
+    ASSERT_STREQ(metric->Name(), "gamma-nloglik");
+    delete metric;
+}
